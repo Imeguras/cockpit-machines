@@ -427,6 +427,10 @@ function timeSampleUsageData(props: Partial<VM>, vm: VM) {
 }
 
 async function pollVmUsage(vm: VM) {
+    // Domains of other hypervisor drivers (LXC, Xen) are only listed for now
+    if (vm.driver != "QEMU")
+        return;
+
     const flags = Enum.VIR_DOMAIN_STATS_BALLOON | Enum.VIR_DOMAIN_STATS_VCPU | Enum.VIR_DOMAIN_STATS_BLOCK | Enum.VIR_DOMAIN_STATS_STATE;
 
     try {

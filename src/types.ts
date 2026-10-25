@@ -341,6 +341,7 @@ export interface VMSnapshot {
 
 export interface VMXML {
     connectionName: ConnectionName;
+    driver: Driver;
     uuid: string;
     name: string;
     description: optString;

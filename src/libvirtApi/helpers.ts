@@ -188,6 +188,13 @@ export function connectPath(driver: Driver = "QEMU"): string {
 }
 
 /**
+ * Hypervisor driver of a libvirt-dbus object path, e.g. "/org/libvirt/LXC/domain/_<uuid>"
+ */
+export function driverFromPath(objPath: string): Driver {
+    return objPath.split("/")[3] as Driver;
+}
+
+/**
  * Call a Libvirt method
  */
 export function call<R = void>(

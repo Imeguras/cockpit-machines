@@ -16,6 +16,7 @@ import { appState } from '../state';
 import type {
     optString,
     ConnectionName,
+    Driver,
     DomainCapabilities,
     VM, VMState, VMGraphics, VMDisk, VMHostDevice,
     NodeDevice,
@@ -785,11 +786,15 @@ export async function domainGet({
 
         const dumpxmlParams = parseDomainDumpxml(connectionName, domainXML, objPath);
 
-        const capabilities = await domainGetCapabilities({
-            connectionName,
-            arch: dumpxmlParams.arch,
-            model: dumpxmlParams.emulatedMachine
-        });
+        // Domains of other hypervisor drivers (LXC, Xen) are only listed for now,
+        // and some of them don't implement GetDomainCapabilities
+        const capabilities = dumpxmlParams.driver == "QEMU"
+            ? await domainGetCapabilities({
+                connectionName,
+                arch: dumpxmlParams.arch,
+                model: dumpxmlParams.emulatedMachine
+            })
+            : parseDomainCapabilities("<domainCapabilities/>");
 
         const [state] = await call<[number[]]>(connectionName, objPath, 'org.libvirt.Domain', 'GetState', [0], { timeout, type: 'u' });
         const stateStr = DOMAINSTATE[state[0]];
@@ -828,7 +833,8 @@ export async function domainGet({
         clearVmUiState(vm.name, connectionName);
 
         // Load snapshots in the background. This can be quite slow.
-        snapshotGetAll(vm);
+        if (vm.driver == "QEMU")
+            snapshotGetAll(vm);
     } catch (ex) {
         // "not found" is an expected error, as this runs on Stopped/Undefined events; so be quiet about these
         if (String(ex).startsWith("Domain not found"))
@@ -859,16 +865,28 @@ export async function domainGetByName({
     }
 }
 
-export async function domainGetAll({ connectionName } : { connectionName: ConnectionName }): Promise<void> {
+export async function domainGetAll({
+    connectionName,
+    driver = "QEMU",
+} : {
+    connectionName: ConnectionName,
+    driver?: Driver,
+}): Promise<void> {
+    let objPaths: string[];
     try {
-        const [objPaths] = await call<[string[]]>(connectionName, connectPath(), 'org.libvirt.Connect', 'ListDomains', [0],
-                                                  { timeout, type: 'u' });
-        appState.deleteUnlistedVMs(connectionName, objPaths);
-        await Promise.all(objPaths.map(path => domainGet({ connectionName, id: path })));
+        [objPaths] = await call<[string[]]>(connectionName, connectPath(driver), 'org.libvirt.Connect', 'ListDomains', [0],
+                                            { timeout, type: 'u' });
     } catch (ex) {
+        // Other hypervisor drivers are optional, their daemon is usually not installed
+        if (driver != "QEMU") {
+            logDebug(`GET_ALL_VMS: ${driver} driver not available on ${connectionName}: ${String(ex)}`);
+            return;
+        }
         console.warn('GET_ALL_VMS action failed:', String(ex));
         throw ex;
     }
+    appState.deleteUnlistedVMs(connectionName, driver, objPaths);
+    await Promise.all(objPaths.map(path => domainGet({ connectionName, id: path })));
 }
 
 const domainCapabilitiesPromises: Record<string, Promise<DomainCapabilities>> = {};
@@ -890,23 +908,27 @@ function domainGetCapabilities({
                 ['', arch, model, '', 0],
                 { timeout, type: 'ssssu' });
 
-        const domCaps = getElem(capsXML);
-        return {
-            loader: getDomainCapLoader(domCaps),
-            maxVcpu: getDomainCapMaxVCPU(domCaps),
-            cpuModels: getDomainCapCPUCustomModels(domCaps),
-            cpuHostModel: getDomainCapCPUHostModel(domCaps),
-            supportedDiskBusTypes: getDomainCapDiskBusTypes(domCaps),
-            supportsSpice: getDomainCapSupportsSpice(domCaps),
-            supportsTPM: getDomainCapSupportsTPM(domCaps),
-            interfaceBackends: getDomainCapInterfaceBackends(domCaps),
-        };
+        return parseDomainCapabilities(capsXML);
     }
 
     const key = `${arch}/${model}`;
     if (!domainCapabilitiesPromises[key])
         domainCapabilitiesPromises[key] = get();
     return domainCapabilitiesPromises[key];
+}
+
+function parseDomainCapabilities(capsXML: string): DomainCapabilities {
+    const domCaps = getElem(capsXML);
+    return {
+        loader: getDomainCapLoader(domCaps),
+        maxVcpu: getDomainCapMaxVCPU(domCaps),
+        cpuModels: getDomainCapCPUCustomModels(domCaps),
+        cpuHostModel: getDomainCapCPUHostModel(domCaps),
+        supportedDiskBusTypes: getDomainCapDiskBusTypes(domCaps),
+        supportsSpice: getDomainCapSupportsSpice(domCaps),
+        supportsTPM: getDomainCapSupportsTPM(domCaps),
+        interfaceBackends: getDomainCapInterfaceBackends(domCaps),
+    };
 }
 
 export async function domainGetStartTime({
