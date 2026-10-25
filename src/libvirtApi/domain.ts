@@ -62,7 +62,7 @@ import {
 import { storagePoolRefresh } from './storagePool.js';
 import { snapshotGetAll } from './snapshot.js';
 import { downloadRhelImage, getRhelImageUrl } from './rhel-images.js';
-import { DBusProps, get_boolean_prop, call, Enum, timeout } from './helpers.js';
+import { DBusProps, get_boolean_prop, call, connectPath, Enum, timeout } from './helpers.js';
 import { CLOUD_IMAGE, DOWNLOAD_AN_OS, LOCAL_INSTALL_MEDIA_SOURCE, needsRHToken } from "../components/create-vm-dialog/createVmDialogUtils.js";
 
 export const domainCanInstall = (vmState: VMState, hasInstallPhase: boolean) => vmState != 'running' && hasInstallPhase;
@@ -329,7 +329,7 @@ export async function domainModifyXML(vm: VM, callback: (doc: XMLDocument) => bo
     if (callback(doc)) {
         const s = new XMLSerializer();
         const updatedDomXml = s.serializeToString(doc);
-        await call(vm.connectionName, '/org/libvirt/QEMU', 'org.libvirt.Connect', 'DomainDefineXML', [updatedDomXml], { timeout, type: 's' });
+        await call(vm.connectionName, connectPath(), 'org.libvirt.Connect', 'DomainDefineXML', [updatedDomXml], { timeout, type: 's' });
     }
 }
 
@@ -392,7 +392,7 @@ export async function domainChangeAutostart ({
     autostart: boolean,
 }): Promise<void> {
     const [domainPath] = await call<[string]>(
-        connectionName, '/org/libvirt/QEMU', 'org.libvirt.Connect', 'DomainLookupByName',
+        connectionName, connectPath(), 'org.libvirt.Connect', 'DomainLookupByName',
         [vmName], { timeout, type: 's' });
     await call(
         connectionName, domainPath, 'org.freedesktop.DBus.Properties', 'Set',
@@ -579,7 +579,7 @@ export async function getStorageDeleteInfoForDisk(vm: VM, disk: VMDisk): Promise
         try {
             const [dbusPath] = await call<[string]>(
                 vm.connectionName,
-                '/org/libvirt/QEMU', 'org.libvirt.Connect', 'StorageVolLookupByPath',
+                connectPath(), 'org.libvirt.Connect', 'StorageVolLookupByPath',
                 [path],
                 { timeout, type: 's' }
             );
@@ -614,7 +614,7 @@ export async function getStorageDeleteInfoForDisk(vm: VM, disk: VMDisk): Promise
     if (disk.type == "volume" && disk.source.pool && disk.source.volume) {
         const [pool] = await call<[string]>(
             vm.connectionName,
-            '/org/libvirt/QEMU', 'org.libvirt.Connect', 'StoragePoolLookupByName',
+            connectPath(), 'org.libvirt.Connect', 'StoragePoolLookupByName',
             [disk.source.pool],
             { timeout, type: 's' }
         );
@@ -849,7 +849,7 @@ export async function domainGetByName({
 }): Promise<void> {
     try {
         const [objPath] = await call<[string]>(
-            connectionName, '/org/libvirt/QEMU',
+            connectionName, connectPath(),
             'org.libvirt.Connect', 'DomainLookupByName',
             [name], { timeout, type: 's' }
         );
@@ -861,7 +861,7 @@ export async function domainGetByName({
 
 export async function domainGetAll({ connectionName } : { connectionName: ConnectionName }): Promise<void> {
     try {
-        const [objPaths] = await call<[string[]]>(connectionName, '/org/libvirt/QEMU', 'org.libvirt.Connect', 'ListDomains', [0],
+        const [objPaths] = await call<[string[]]>(connectionName, connectPath(), 'org.libvirt.Connect', 'ListDomains', [0],
                                                   { timeout, type: 'u' });
         appState.deleteUnlistedVMs(connectionName, objPaths);
         await Promise.all(objPaths.map(path => domainGet({ connectionName, id: path })));
@@ -886,7 +886,7 @@ function domainGetCapabilities({
         const [capsXML] =
             await call<[string]>(
                 connectionName,
-                '/org/libvirt/QEMU', 'org.libvirt.Connect', 'GetDomainCapabilities',
+                connectPath(), 'org.libvirt.Connect', 'GetDomainCapabilities',
                 ['', arch, model, '', 0],
                 { timeout, type: 'ssssu' });
 
